@@ -124,6 +124,65 @@ app.get('/help-center/sections/:sectionId/articles', async (req, res) => {
 })
 
 /**
+ * Get a single section (from B2B help center, public only)
+ * GET /help-center/sections/:sectionId
+ */
+app.get('/help-center/sections/:sectionId', async (req, res) => {
+  try {
+    const { sectionId } = req.params
+    const url = `${ZENDESK_B2B_URL}/api/v2/help_center/en-gb/sections/${sectionId}.json`
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Could not fetch section' })
+    }
+
+    const data = await response.json()
+    const section = data.section ? {
+      id: data.section.id,
+      name: data.section.name,
+      description: data.section.description,
+      html_url: data.section.html_url,
+      category_id: data.section.category_id
+    } : null
+
+    res.json({ section })
+  } catch (error) {
+    console.error('Section fetch error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Get a single category (from B2B help center, public only)
+ * GET /help-center/categories/:categoryId
+ */
+app.get('/help-center/categories/:categoryId', async (req, res) => {
+  try {
+    const { categoryId } = req.params
+    const url = `${ZENDESK_B2B_URL}/api/v2/help_center/en-gb/categories/${categoryId}.json`
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Could not fetch category' })
+    }
+
+    const data = await response.json()
+    const category = data.category ? {
+      id: data.category.id,
+      name: data.category.name,
+      description: data.category.description,
+      html_url: data.category.html_url
+    } : null
+
+    res.json({ category })
+  } catch (error) {
+    console.error('Category fetch error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
  * Get a single article (from B2B help center, public only)
  * GET /help-center/articles/:articleId
  */
