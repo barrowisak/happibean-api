@@ -155,7 +155,7 @@ app.get('/help-center/articles/:articleId', async (req, res) => {
 })
 
 /**
- * FAQ Search - fetches all articles and filters locally
+ * FAQ Search - fetches all articles and filters locally with ranking
  * (Zendesk Help Center search API requires it to be enabled)
  * GET /faq/search?q=<query>
  */
@@ -167,40 +167,63 @@ app.get('/faq/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter "q" is required' })
     }
 
-    // Fetch all articles from B2B help center (public only, no auth)
-    const articlesUrl = `${ZENDESK_B2B_URL}/api/v2/help_center/en-gb/articles.json?per_page=100`
-    const response = await fetch(articlesUrl)
+    // Fetch ALL articles from B2B help center (handle pagination)
+    let allArticles = []
+    let nextPage = `${ZENDESK_B2B_URL}/api/v2/help_center/en-gb/articles.json?per_page=100`
 
-    if (!response.ok) {
-      console.error('Zendesk articles fetch error:', response.status)
-      return res.status(response.status).json({
-        error: 'FAQ search failed',
-        details: 'Could not fetch articles'
-      })
+    while (nextPage) {
+      const response = await fetch(nextPage)
+      if (!response.ok) {
+        console.error('Zendesk articles fetch error:', response.status)
+        break
+      }
+      const data = await response.json()
+      allArticles = allArticles.concat(data.articles || [])
+      nextPage = data.next_page // null when no more pages
     }
 
-    const data = await response.json()
     const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0)
 
-    // Filter articles that match the search query
-    // ALL search terms must appear in either title or body (AND logic)
-    const results = (data.articles || [])
-      .filter(article => {
+    // Filter and score articles
+    const scoredResults = allArticles
+      .map(article => {
         const title = (article.title || '').toLowerCase()
         const body = (article.body || '').toLowerCase()
-        const combined = title + ' ' + body
-        // Match only if ALL search terms appear somewhere in title or body
-        return searchTerms.every(term => combined.includes(term))
+
+        // Calculate match score
+        let score = 0
+        let allTermsMatch = true
+
+        for (const term of searchTerms) {
+          const titleMatch = title.includes(term)
+          const bodyMatch = body.includes(term)
+
+          if (!titleMatch && !bodyMatch) {
+            allTermsMatch = false
+            break
+          }
+
+          // Title matches are worth more
+          if (titleMatch) score += 10
+          if (bodyMatch) score += 1
+
+          // Exact word match bonus
+          if (title.match(new RegExp(`\\b${term}\\b`))) score += 5
+        }
+
+        return { article, score, allTermsMatch }
       })
-      .slice(0, 10) // Limit to 10 results
-      .map(article => ({
-        id: article.id,
-        title: article.title,
-        body: article.body || '',
-        html_url: article.html_url
+      .filter(item => item.allTermsMatch)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map(item => ({
+        id: item.article.id,
+        title: item.article.title,
+        body: item.article.body || '',
+        html_url: item.article.html_url
       }))
 
-    res.json({ results, count: results.length })
+    res.json({ results: scoredResults, count: scoredResults.length })
 
   } catch (error) {
     console.error('FAQ search error:', error)
