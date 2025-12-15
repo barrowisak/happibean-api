@@ -155,7 +155,8 @@ app.get('/help-center/articles/:articleId', async (req, res) => {
 })
 
 /**
- * FAQ Search - proxies to Zendesk Help Center Search API
+ * FAQ Search - fetches all articles and filters locally
+ * (Zendesk Help Center search API requires it to be enabled)
  * GET /faq/search?q=<query>
  */
 app.get('/faq/search', async (req, res) => {
@@ -166,35 +167,36 @@ app.get('/faq/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter "q" is required' })
     }
 
-    if (!ZENDESK_SUBDOMAIN) {
-      return res.status(500).json({ error: 'Zendesk not configured' })
-    }
-
-    // Search Help Center articles (from B2B help center, public only)
-    // Documentation: https://developer.zendesk.com/api-reference/help_center/help-center-api/search/
-    // NO AUTH to get only public content
-    const searchUrl = `${ZENDESK_B2B_URL}/api/v2/help_center/en-gb/articles/search.json?query=${encodeURIComponent(query)}&per_page=10`
-
-    const response = await fetch(searchUrl)
+    // Fetch all articles from B2B help center (public only, no auth)
+    const articlesUrl = `${ZENDESK_B2B_URL}/api/v2/help_center/en-gb/articles.json?per_page=100`
+    const response = await fetch(articlesUrl)
 
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Zendesk FAQ search error:', response.status, errorText)
+      console.error('Zendesk articles fetch error:', response.status)
       return res.status(response.status).json({
         error: 'FAQ search failed',
-        details: response.status === 404 ? 'Help Center not found' : 'Search error'
+        details: 'Could not fetch articles'
       })
     }
 
     const data = await response.json()
+    const searchTerms = query.toLowerCase().split(/\s+/)
 
-    // Map to simpler format for frontend
-    const results = data.results?.map(article => ({
-      id: article.id,
-      title: article.title,
-      body: article.body || article.snippet || '',
-      html_url: article.html_url
-    })) || []
+    // Filter articles that match the search query
+    const results = (data.articles || [])
+      .filter(article => {
+        const title = (article.title || '').toLowerCase()
+        const body = (article.body || '').toLowerCase()
+        // Match if any search term appears in title or body
+        return searchTerms.some(term => title.includes(term) || body.includes(term))
+      })
+      .slice(0, 10) // Limit to 10 results
+      .map(article => ({
+        id: article.id,
+        title: article.title,
+        body: article.body || '',
+        html_url: article.html_url
+      }))
 
     res.json({ results, count: results.length })
 
