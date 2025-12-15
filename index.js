@@ -180,15 +180,17 @@ app.get('/faq/search', async (req, res) => {
     }
 
     const data = await response.json()
-    const searchTerms = query.toLowerCase().split(/\s+/)
+    const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0)
 
     // Filter articles that match the search query
+    // ALL search terms must appear in either title or body (AND logic)
     const results = (data.articles || [])
       .filter(article => {
         const title = (article.title || '').toLowerCase()
         const body = (article.body || '').toLowerCase()
-        // Match if any search term appears in title or body
-        return searchTerms.some(term => title.includes(term) || body.includes(term))
+        const combined = title + ' ' + body
+        // Match only if ALL search terms appear somewhere in title or body
+        return searchTerms.every(term => combined.includes(term))
       })
       .slice(0, 10) // Limit to 10 results
       .map(article => ({
